@@ -1,0 +1,64 @@
+{
+  "name": "libtraderepublic",
+  "version": "0.1.0",
+  "description": "Independent parser for Trade Republic's official transaction CSV export. Not affiliated with Trade Republic Bank GmbH.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "SCHEMA.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test",
+    "prepublishOnly": "pnpm run verify"
+  },
+  "keywords": [
+    "trade-republic",
+    "csv",
+    "parser",
+    "transactions",
+    "broker",
+    "ledger"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aritzmmartinez/libtraderepublic.git"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0",
+    "papaparse": "^5.7.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.4.1",
+    "@types/papaparse": "^5.5.2",
+    "eslint": "^10.9.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.20.0"
+}
