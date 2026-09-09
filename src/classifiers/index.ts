@@ -4,11 +4,14 @@ import type { Movement } from "../types.js";
 
 export const CLASSIFIED_TYPES = [
   "TRADING|BUY",
+  "TRADING|SELL",
   "CASH|CARD_TRANSACTION",
   "CASH|CARD_TRANSACTION_INTERNATIONAL",
   "CASH|TRANSFER_INSTANT_INBOUND",
   "CASH|TRANSFER_INSTANT_OUTBOUND",
+  "CASH|TRANSFER_DIRECT_DEBIT_INBOUND",
   "CASH|INTEREST_PAYMENT",
+  "CASH|DIVIDEND",
   "CASH|BENEFITS_SAVEBACK",
 ] as const;
 
@@ -52,6 +55,41 @@ export function classify(row: RawRow): Movement {
         assetClass: row.asset_class,
         shares: decimal(row.shares),
         price: Money.parse(row.price, currency),
+      };
+
+    case "TRADING|SELL":
+      return {
+        ...base(row),
+        kind: "sell",
+        amount: Money.parse(row.amount, currency),
+        isin: row.symbol,
+        name: row.name,
+        assetClass: row.asset_class,
+        shares: decimal(row.shares),
+        price: Money.parse(row.price, currency),
+      };
+
+    case "CASH|DIVIDEND":
+      return {
+        ...base(row),
+        kind: "dividend",
+        amount: Money.parse(row.amount, currency),
+        isin: row.symbol,
+        name: row.name,
+        assetClass: row.asset_class,
+        shares: decimal(row.shares),
+        originalAmount: Money.maybe(
+          row.original_amount,
+          row.original_currency || currency,
+        ),
+        fxRate: maybeDecimal(row.fx_rate),
+      };
+
+    case "CASH|TRANSFER_DIRECT_DEBIT_INBOUND":
+      return {
+        ...base(row),
+        kind: "direct-debit",
+        amount: Money.parse(row.amount, currency),
       };
 
     case "CASH|CARD_TRANSACTION":

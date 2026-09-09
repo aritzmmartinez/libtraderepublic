@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+
+- Classifiers for three more verified types: sell, dividend, direct-debit.
+- Verified against a one-year real export (562 rows): 22 sell, 34 dividend, 12 direct-debit.
+- sell mirrors buy's shape, with the file's own signs (shares negative, amount positive).
+- dividend includes an FX leg only when the instrument isn't EUR-native, same rule as card. Amount has no fixed sign.
+- direct-debit is its own kind, not a transfer — the file calls it inbound but the amount is always negative.
+- Fixture rows for each new type, including a negative dividend and an unclassified corporate action row.
+- SCHEMA.md updated: three types moved to verified, CORPORATE_ACTION noted as an observed category, real counts added for the remaining unverified types.
+
 ## [0.1.0]
 
 ### Added
@@ -21,5 +33,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - SCHEMA.md, with every claim marked verified, reported, or expected.
 
 
-[Unreleased]: https://github.com/aritzmmartinez/libtraderepublic/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/aritzmmartinez/libtraderepublic/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/aritzmmartinez/libtraderepublic/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aritzmmartinez/libtraderepublic/releases/tag/v0.1.0

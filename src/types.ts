@@ -31,6 +31,29 @@ export const buyMovementSchema = movementBase.extend({
   price: money(),
 });
 
+export const sellMovementSchema = movementBase.extend({
+  kind: z.literal("sell"),
+  isin: z.string(),
+  name: z.string(),
+  assetClass: z.string(),
+  shares: dec(),
+  price: money(),
+});
+
+export const dividendMovementSchema = movementBase.extend({
+  kind: z.literal("dividend"),
+  isin: z.string(),
+  name: z.string(),
+  assetClass: z.string(),
+  shares: dec(),
+  originalAmount: money().nullable(),
+  fxRate: dec().nullable(),
+});
+
+export const directDebitMovementSchema = movementBase.extend({
+  kind: z.literal("direct-debit"),
+});
+
 export const cardMovementSchema = movementBase.extend({
   kind: z.literal("card"),
   merchant: z.string(),
@@ -66,6 +89,9 @@ export const unknownMovementSchema = movementBase.extend({
 
 export const movementSchema = z.discriminatedUnion("kind", [
   buyMovementSchema,
+  sellMovementSchema,
+  dividendMovementSchema,
+  directDebitMovementSchema,
   cardMovementSchema,
   transferMovementSchema,
   interestMovementSchema,
@@ -74,6 +100,9 @@ export const movementSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type BuyMovement = z.infer<typeof buyMovementSchema>;
+export type SellMovement = z.infer<typeof sellMovementSchema>;
+export type DividendMovement = z.infer<typeof dividendMovementSchema>;
+export type DirectDebitMovement = z.infer<typeof directDebitMovementSchema>;
 export type CardMovement = z.infer<typeof cardMovementSchema>;
 export type TransferMovement = z.infer<typeof transferMovementSchema>;
 export type InterestMovement = z.infer<typeof interestMovementSchema>;
