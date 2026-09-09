@@ -7,6 +7,7 @@ import { classify } from "../src/classifiers/index.js";
 import { Money, decimal, maybeDecimal } from "../src/money.js";
 import { parseTransactionsCsv } from "../src/parser.js";
 import { CSV_COLUMNS, rawRowSchema } from "../src/schema.js";
+import { dividendMovementSchema } from "../src/types.js";
 import type { Movement, MovementKind } from "../src/types.js";
 
 const csv = readFileSync(
@@ -29,8 +30,8 @@ function only<K extends MovementKind>(
 
 describe("parseTransactionsCsv", () => {
   it("reads every row of the fixture, header included", () => {
-    expect(result.records).toHaveLength(8);
-    expect(result.movements).toHaveLength(8);
+    expect(result.records).toHaveLength(13);
+    expect(result.movements).toHaveLength(13);
     expect(result.issues.filter((i) => i.code !== "unknown-type")).toEqual([]);
   });
 
@@ -43,6 +44,11 @@ describe("parseTransactionsCsv", () => {
       "interest",
       "saveback",
       "transfer",
+      "sell",
+      "dividend",
+      "dividend",
+      "dividend",
+      "direct-debit",
       "unknown",
     ]);
   });
@@ -85,19 +91,69 @@ describe("parseTransactionsCsv", () => {
     const outbound = only("transfer", 1);
     expect(outbound.direction).toBe("outbound");
     expect(outbound.counterpartyName).toBe("Example Recipient");
-    // Not seen on outbound rows in any export so far — null, never invented.
     expect(outbound.counterpartyIban).toBeNull();
   });
 
   it("signs money out negative and money in positive", () => {
     for (const movement of result.movements) {
-      if (movement.kind === "unknown" || !movement.amount) continue;
+      if (
+        movement.kind === "unknown" ||
+        movement.kind === "dividend" ||
+        !movement.amount
+      )
+        continue;
       const outbound =
         movement.kind === "buy" ||
         movement.kind === "card" ||
+        movement.kind === "direct-debit" ||
         (movement.kind === "transfer" && movement.direction === "outbound");
       expect(movement.amount.isNegative).toBe(outbound);
     }
+  });
+
+  it("maps a SELL with buy's shape but the file's own signs", () => {
+    const sell = only("sell");
+    expect(sell.isin).toBe("IE00EXAMPLE01");
+    expect(sell.assetClass).toBe("FUND");
+    expect(sell.shares.toFixed()).toBe("-0.5");
+    expect(sell.amount.isNegative).toBe(false);
+    expect(sell.price.raw).toBe("99.1000000000");
+    expect(sell.fee?.raw).toBe("-0.99");
+    expect(sell.id).toBe("0195f3a0-8888-7000-8000-000000000008");
+  });
+
+  it("maps a DIVIDEND, EUR instrument, without an FX leg", () => {
+    const div = only("dividend", 0);
+    expect(div.isin).toBe("ES0000000001");
+    expect(div.shares.toFixed()).toBe("10");
+    expect(div.amount.raw).toBe("4.560000");
+    expect(div.tax?.raw).toBe("-0.680000");
+    expect(div.originalAmount).toBeNull();
+    expect(div.fxRate).toBeNull();
+  });
+
+  it("maps a DIVIDEND, non-EUR instrument, with its FX leg", () => {
+    const div = only("dividend", 1);
+    expect(div.isin).toBe("US0000000002");
+    expect(div.amount.isNegative).toBe(false);
+    expect(div.originalAmount?.raw).toBe("3.690000");
+    expect(div.originalAmount?.currency).toBe("USD");
+    expect(div.fxRate?.toFixed()).toBe("1.149532");
+  });
+
+  it("accepts a negative DIVIDEND amount without failing validation", () => {
+    const div = only("dividend", 2);
+    expect(div.amount.isNegative).toBe(true);
+    expect(div.amount.raw).toBe("-0.010000");
+    expect(() => dividendMovementSchema.parse(div)).not.toThrow();
+  });
+
+  it("maps a DIRECT_DEBIT as money out, with no direction field", () => {
+    const dd = only("direct-debit");
+    expect(dd.amount.raw).toBe("-29.990000");
+    expect(dd.amount.isNegative).toBe(true);
+    expect("direction" in dd).toBe(false);
+    expect(dd.description).toMatch(/Example Streaming Service/);
   });
 });
 
@@ -121,7 +177,6 @@ describe("precision", () => {
   });
 });
 
-/** Build a one-off CSV: header plus the given rows, each as column -> cell. */
 function csvOf(...rows: Partial<Record<string, string>>[]): string {
   const header = CSV_COLUMNS.join(",");
   const lines = rows.map((row) =>
@@ -218,26 +273,29 @@ describe("optional numeric cells", () => {
 describe("unknown rows", () => {
   it("keeps an unclassified type instead of dropping it", () => {
     const unknown = only("unknown");
-    expect(unknown.category).toBe("TRADING");
-    expect(unknown.type).toBe("SELL");
-    expect(unknown.raw.symbol).toBe("IE00EXAMPLE01");
-    expect(unknown.raw.shares).toBe("0.5000000000");
-    expect(unknown.amount?.raw).toBe("49.55");
+    expect(unknown.category).toBe("CORPORATE_ACTION");
+    expect(unknown.type).toBe("LIQUIDATION_PROCEEDS");
+    expect(unknown.raw.symbol).toBe("IE00EXAMPLE99");
+    expect(unknown.raw.shares).toBe("2.0000000000");
+    expect(unknown.amount?.raw).toBe("2.00");
   });
 
   it("reports it as an issue without failing the parse", () => {
     const issues = result.issues.filter((i) => i.code === "unknown-type");
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.line).toBe(9);
+    expect(issues[0]?.line).toBe(14);
   });
 
   it("can be taught a type by composing over the built-in classifier", () => {
     const extended = parseTransactionsCsv(csv, {
       classify: (row) => {
-        if (row.category === "TRADING" && row.type === "SELL") {
+        if (
+          row.category === "CORPORATE_ACTION" &&
+          row.type === "LIQUIDATION_PROCEEDS"
+        ) {
           return {
             ...classify(row),
-            kind: "buy",
+            kind: "sell",
             isin: row.symbol,
             name: row.name,
             assetClass: row.asset_class,
