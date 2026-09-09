@@ -1,6 +1,6 @@
 {
   "name": "libtraderepublic",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Independent parser for Trade Republic's official transaction CSV export. Not affiliated with Trade Republic Bank GmbH.",
   "license": "MIT",
   "type": "module",

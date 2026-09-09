@@ -96,8 +96,17 @@ for (const movement of movements) {
     case "card":
       console.log(movement.merchant, movement.originalAmount?.currency ?? "EUR");
       break;
+    case "sell":
+      console.log(movement.isin, movement.shares.toFixed(), movement.amount.raw);
+      break;
+    case "dividend":
+      console.log(movement.isin, movement.amount.raw, movement.fxRate?.toFixed() ?? "EUR");
+      break;
     case "transfer":
       console.log(movement.direction, movement.counterpartyName);
+      break;
+    case "direct-debit":
+      console.log("direct debit", movement.amount.raw);
       break;
     case "interest":
     case "saveback":
@@ -169,25 +178,30 @@ is the tolerant one.
 
 ## Supported types
 
-`category` + `type` is the discriminator. Seven pairs are classified today:
+`category` + `type` is the discriminator. Ten pairs are classified today:
 
 | `category\|type`                       | `Movement["kind"]` | Status |
 |----------------------------------------|--------------------|--------|
 | `TRADING\|BUY`                          | `buy`              | Verified |
+| `TRADING\|SELL`                         | `sell`            | Verified |
 | `CASH\|CARD_TRANSACTION`                | `card`             | Verified |
 | `CASH\|CARD_TRANSACTION_INTERNATIONAL`  | `card`             | Verified |
 | `CASH\|TRANSFER_INSTANT_INBOUND`        | `transfer`         | Verified |
 | `CASH\|TRANSFER_INSTANT_OUTBOUND`       | `transfer`         | Verified |
+| `CASH\|TRANSFER_DIRECT_DEBIT_INBOUND`   | `direct-debit`    | Verified |
 | `CASH\|INTEREST_PAYMENT`                | `interest`         | Verified |
+| `CASH\|DIVIDEND`                        | `dividend`        | Verified |
 | `CASH\|BENEFITS_SAVEBACK`               | `saveback`         | Verified |
 | anything else                           | `unknown`          | — |
 
-`SELL`, dividends, `CUSTOMER_INPAYMENT` and the non-instant SEPA transfer types
-are *reported* by another parser running against a larger real export, but their
-column layout has not been checked cell by cell here, so they classify as
-`unknown` rather than being mapped on a guess. Promoting one is a two-line change
-plus a fixture row — see [SCHEMA.md](./SCHEMA.md), or use a
-[custom classifier](#a-custom-classifier) today without waiting for a release.
+`CUSTOMER_INPAYMENT` and the non-instant SEPA transfer types are *reported* by
+another parser running against a larger real export, but their column layout has
+not been checked cell by cell here, so they classify as `unknown` rather than
+being mapped on a guess. `CORPORATE_ACTION` rows and `TRANSFER_INBOUND` are seen
+in a real export but at too low a volume to model yet — same treatment.
+Promoting one is a two-line change plus a fixture row — see
+[SCHEMA.md](./SCHEMA.md), or use a [custom classifier](#a-custom-classifier)
+today without waiting for a release.
 
 ### Why there is no dialect layer
 
@@ -209,8 +223,11 @@ been taught yet — which is exactly what the `unknown` kind is for.
 One movement per CSV row, discriminated on `kind`:
 
 - `buy` — instrument purchase, with `isin`, `name`, `assetClass`, `shares`, `price`
+- `sell` — instrument sale, same shape as `buy`; `shares` is negative and `amount` positive, straight from the file
 - `card` — card payment, with `merchant`, `international`, `originalAmount`, `fxRate`, `mccCode`
-- `transfer` — SEPA movement, with `direction`, `instant`, `counterpartyName`, `counterpartyIban`, `paymentReference`
+- `dividend` — cash distribution, with `isin`, `name`, `assetClass`, `shares`; `originalAmount`/`fxRate` only for non-EUR instruments; withholding in `tax`; `amount` can be negative
+- `transfer` — instant SEPA movement, with `direction`, `instant`, `counterpartyName`, `counterpartyIban`, `paymentReference`
+- `direct-debit` — SEPA direct debit; always money out, so no `direction`. Creditor is only in `description`
 - `interest` — interest payment, with withholding in `tax`
 - `saveback` — Trade Republic's card-spending rebate, with withholding in `tax`
 - `unknown` — anything else, with `category`, `type`, and the whole row in `raw`
@@ -223,20 +240,26 @@ The union is exhaustive, so this is checked at compile time:
 ```ts
 function label(movement: Movement): string {
   switch (movement.kind) {
-    case "buy":      return `Bought ${movement.shares.toFixed()} × ${movement.name}`;
-    case "card":     return `Card: ${movement.merchant}`;
-    case "transfer": return `Transfer ${movement.direction}`;
-    case "interest": return "Interest";
-    case "saveback": return "Saveback";
-    case "unknown":  return `Unclassified ${movement.type}`;
+    case "buy":          return `Bought ${movement.shares.toFixed()} × ${movement.name}`;
+    case "sell":         return `Sold ${movement.shares.abs().toFixed()} × ${movement.name}`;
+    case "card":         return `Card: ${movement.merchant}`;
+    case "dividend":     return `Dividend from ${movement.name}`;
+    case "transfer":     return `Transfer ${movement.direction}`;
+    case "direct-debit": return "Direct debit";
+    case "interest":     return "Interest";
+    case "saveback":     return "Saveback";
+    case "unknown":      return `Unclassified ${movement.type}`;
     // Add a kind and TypeScript points at this function.
   }
 }
 ```
 
 Amounts keep the file's sign: money out is negative (buys, card payments,
-outgoing transfers), money in is positive (interest, saveback, incoming
-transfers). The side never has to be inferred from the description.
+outgoing transfers, direct debits), money in is positive (interest, saveback,
+incoming transfers, sell proceeds). The side never has to be inferred from the
+description. Two kinds carry no fixed sign — a `card` refund is positive, and a
+small non-EUR `dividend` can net negative after withholding and FX rounding —
+so branch on `amount.isNegative`, not on `kind`, when you need the direction.
 
 ### Transactions
 
@@ -306,11 +329,11 @@ anything you do not handle falls through to the default — including, still, th
 import { classify, parseTransactionsCsv, Money, decimal } from "libtraderepublic";
 import type { Movement, RawRow } from "libtraderepublic";
 
-function classifyWithSell(row: RawRow): Movement {
-  if (row.category === "TRADING" && row.type === "SELL") {
+function classifyWithLiquidation(row: RawRow): Movement {
+  if (row.category === "CORPORATE_ACTION" && row.type === "LIQUIDATION_PROCEEDS") {
     return {
       ...classify(row), // id, datetime, fee, tax, description, raw
-      kind: "buy",      // your model's sell shape
+      kind: "sell",     // map it onto a shape you already handle
       isin: row.symbol,
       name: row.name,
       assetClass: row.asset_class,
@@ -322,7 +345,7 @@ function classifyWithSell(row: RawRow): Movement {
   return classify(row);
 }
 
-const result = parseTransactionsCsv(csvText, { classify: classifyWithSell });
+const result = parseTransactionsCsv(csvText, { classify: classifyWithLiquidation });
 ```
 
 This is the supported way to run ahead of the library: you get a type mapped
@@ -381,11 +404,13 @@ pnpm run verify   # lint + typecheck + build + test
 ```
 
 The test fixture at `test/fixtures/transactions.csv` is entirely **synthetic**:
-invented ISINs, invented amounts, invented counterparties, one row per verified
-type plus one deliberately unrecognised row. No real export, and no real
-portfolio data, is in this repository or ever should be. It also pins the
-inconsistent-precision case (6 decimals on cash, 2 on trading) as an invariant,
-so a future refactor cannot quietly normalise amounts.
+invented ISINs, invented amounts, invented counterparties, at least one row per
+verified type plus one deliberately unrecognised `CORPORATE_ACTION` row. No real
+export, and no real portfolio data, is in this repository or ever should be. It
+pins the inconsistent-precision case (6 decimals on cash, 2 on trading) as an
+invariant, and pins the verified odd cases too — a negative `dividend`, a
+`sell` with negative `shares` — so a future refactor cannot quietly normalise
+them away.
 
 Hit a `type` this library reports as `unknown`? Open an issue with the
 `category|type` pair and a **synthetic** row showing the column layout. Please
